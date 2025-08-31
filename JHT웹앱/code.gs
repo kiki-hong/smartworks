@@ -1105,7 +1105,7 @@ function createQuotePdf_(data) {
         supply || '',
         vat || '',
         total || '',
-        it.note || ''
+        it.usage || ''
       ]);
     }
 
