@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="ko" class="ui-mobile">
+<head>
+  <!-- 기본 메타 -->
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JHT 스마트 업무일지</title>
+
+<!-- OG / SEO -->
+<meta property="og:title" content="JHT 스마트 업무일지">
+<meta property="og:description" content="팀원들의 업무일지를 기록하고 관리하는 스마트 웹앱">
+<meta name="description" content="JHT 스마트 업무일지 - 팀원들의 업무를 효율적으로 관리하세요">
+
+<!-- PWA -->
+<meta name="theme-color" content="#1a237e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="JHT">
+
+<!-- ▼ 브라우저 탭 파비콘 (텍스트 'JHT' 폴백용 SVG, 이미지가 없어도 탭에 'JHT' 보임) -->
+<link rel="icon" type="image/svg+xml"
+  href='data:image/svg+xml;utf8,
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+    <rect width="128" height="128" fill="%231a237e"/>
+    <text x="50%" y="58%" dominant-baseline="middle" text-anchor="middle"
+          font-family="sans-serif" font-weight="700" font-size="64" fill="white">JHT</text>
+  </svg>'>
+
+<!-- ▼ iOS 홈화면 아이콘 (180x180 PNG, 캐시버스터 포함) -->
+<link rel="apple-touch-icon" sizes="180x180"
+      href="https://drive.usercontent.google.com/uc?id=1-g8lJuy3RRWGC4bbXt3qK-JyiVXMTRvr&export=download&v=2" />
+
+<!-- ▼ Safari(iOS) 탭/일반 파비콘은 PNG로 -->
+<link rel="icon" type="image/png" sizes="32x32"
+      href="https://drive.usercontent.google.com/uc?id=1eNy-VU-AHh4lu9wx0axTaIuNin_Q3DjA&export=download&v=2">
+<link rel="icon" type="image/png" sizes="16x16"
+      href="https://drive.usercontent.google.com/uc?id=1eNy-VU-AHh4lu9wx0axTaIuNin_Q3DjA&export=download&v=2">
+
+<!-- (선택) 데스크톱용 SVG 파비콘은 보조로 유지 가능 -->
+<link rel="icon" type="image/svg+xml"
+  href='data:image/svg+xml;utf8,
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+    <rect width="128" height="128" fill="%231a237e"/>
+    <text x="50%" y="58%" dominant-baseline="middle" text-anchor="middle"
+          font-family="sans-serif" font-weight="700" font-size="64" fill="white">JHT</text>
+  </svg>'>
+
+<!-- ▼ PWA 매니페스트 (안드로이드용, iOS는 무시) -->
+<link rel="manifest" href='data:application/json,{
+  "name":"JHT 스마트 업무일지",
+  "short_name":"JHT",
+  "description":"업무일지 및 호실현황 관리",
+  "start_url":".",
+  "display":"standalone",
+  "background_color":"#1a237e",
+  "theme_color":"#1a237e",
+  "icons":[
+    { "src":"https://drive.usercontent.google.com/uc?id=1eNy-VU-AHh4lu9wx0axTaIuNin_Q3DjA&export=download&v=2", "sizes":"192x192", "type":"image/png", "purpose":"any maskable" },
+    { "src":"https://drive.usercontent.google.com/uc?id=1o4VakqjWayWYlmogdAuu5Ddcr6hpp0Zt&export=download&v=2", "sizes":"512x512", "type":"image/png", "purpose":"any maskable" }
+  ]
+}' />
+
+
+<script>
+/* 모바일 우선: <html class="ui-mobile">를 기본으로 두고
+   '정말 데스크톱일 때만' ui-desktop으로 스위치 */
+document.addEventListener('DOMContentLoaded', function () {
+  var root = document.documentElement;
+
+  function isDefinitelyDesktop() {
+    var ua = navigator.userAgent || '';
+    var desktopUA = /(Windows NT|Macintosh|X11|Linux x86_64)/.test(ua)
+                    && !/Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+    var hasTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0
+                   || (window.matchMedia && matchMedia('(pointer: coarse)').matches);
+    var shortSide = Math.min(window.innerWidth || screen.width,
+                             window.innerHeight || screen.height);
+    // '모바일일 가능성'이 있으면 그대로 두고,
+    // 데스크톱이 확실할 때(터치X 또는 데스크톱 UA + 큰 화면)만 PC 전환
+    return (desktopUA && shortSide >= 900) || (!hasTouch && shortSide >= 900);
+  }
+
+  function applyMode() {
+    var desktop = isDefinitelyDesktop();
+    root.classList.toggle('ui-desktop', desktop);
+    root.classList.toggle('ui-mobile', !desktop);
+
+    // 상단 토글 버튼 상태 동기화(있을 때만)
+    var segPC = document.querySelector('.view-toggle [data-mode="desktop"]');
+    var segMO = document.querySelector('.view-toggle [data-mode="mobile"]');
+    if (segPC && segMO) {
+      segPC.classList.toggle('active', desktop);
+      segMO.classList.toggle('active', !desktop);
+    }
+  }
+
+  // 최초 적용
+  applyMode();
+
+  // 리사이즈 디바운스(깜빡임 방지)
+  var t;
+  window.addEventListener('resize', function () {
+    clearTimeout(t);
+    t = setTimeout(applyMode, 150);
+  });
+
+  // 사용자 강제 전환(상단 토글)
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('.view-toggle .seg');
+    if (!btn) return;
+    var mode = btn.dataset.mode; // 'desktop' | 'mobile'
+    root.classList.toggle('ui-desktop', mode === 'desktop');
+    root.classList.toggle('ui-mobile', mode !== 'desktop');
+    btn.parentElement.querySelectorAll('.seg').forEach(function (b) {
+      b.classList.toggle('active', b === btn);
+    });
+  });
+});
+</script>
+
+ <style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  min-height: 100vh;
+  padding: 10px;
+  font-size: clamp(20px, 4.5vw, 28px); /* 기본 글씨 크기 유동 */
+}
+
+.container {
+  width:100%; max-width:100%; margin:0 auto;
+  background:#fff; border-radius:15px;
+  box-shadow:0 20px 40px rgba(0,0,0,.2); overflow:hidden;
+}
+
+.header {
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  color:#fff; text-align:center; padding:20px;
+}
+.header h1 {
+  font-size: clamp(36px, 8vw, 64px); font-weight:700; margin-bottom:12px;
+}
+.header p { font-size: clamp(22px, 5vw, 32px); opacity:.9; }
+
+.nav-tabs { background:#f5f5f5; display:none; border-bottom:1px solid #ddd; }
+.nav-tabs.show { display:flex; }
+.nav-tab {
+  flex:1; padding:15px; text-align:center; background:#f5f5f5;
+  border:none; cursor:pointer;
+  font-size: clamp(16px, 4.5vw, 24px);
+  font-weight:500; transition:all .3s;
+  border-bottom:3px solid transparent;
+}
+.nav-tab.active { background:#fff; color:#1a237e; border-bottom-color:#1a237e; }
+.nav-tab:hover { background:#e8f5e8; }
+
+.form-container { padding:20px; }
+.form-group { margin-bottom:20px; }
+.form-group label {
+  display:block; margin-bottom:10px; font-weight:600; color:#1a237e;
+  font-size: clamp(20px, 4.8vw, 30px);
+}
+.form-group input, .form-group select, .form-group textarea {
+  width:100%; padding: clamp(18px, 4vw, 26px);
+  border:2px solid #e3f2fd; border-radius:10px;
+  font-size: clamp(22px, 5vw, 32px);
+  background:#fafafa; transition:all .3s; font-family:inherit;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+  outline:none; border-color:#1a237e; background:#fff;
+  box-shadow:0 0 0 3px rgba(26,35,126,.1);
+}
+.form-group textarea { resize:vertical; }
+.form-group textarea.large { min-height:120px; }
+.form-group select {
+  cursor:pointer;
+  background-image:url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%231a237e' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+  background-position:right 12px center; background-repeat:no-repeat;
+  background-size:16px; padding-right:40px; appearance:none;
+}
+
+/* placeholder도 확대 */
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  font-size: clamp(20px, 4.5vw, 28px);
+  color:#888;
+}
+
+.image-preview { margin-top:15px; }
+.preview-item {
+  display:flex; align-items:center; background:#f5f5f5;
+  padding:10px; border-radius:8px; margin-bottom:10px;
+  border-left:4px solid #1a237e;
+}
+.preview-item img { width:60px; height:60px; object-fit:cover; border-radius:8px; margin-right:15px; }
+.preview-info { flex:1; }
+.preview-name { font-weight:600; color:#1a237e; font-size:14px; margin-bottom:5px; }
+.preview-size { font-size:12px; color:#666; }
+.preview-remove {
+  background:#f44336; color:#fff; border:none; border-radius:50%;
+  width:30px; height:30px; cursor:pointer; font-size:16px;
+  display:flex; align-items:center; justify-content:center;
+}
+.preview-remove:hover { background:#d32f2f; }
+
+.login-section { display:block; }
+.main-section { display:none; }
+.diary-tab, .room-tab, .view-diary-tab { display: none; }
+.diary-tab.active, .room-tab.active, .view-diary-tab.active { display: block; }
+
+.btn {
+  width:100%; padding: clamp(20px, 5vw, 28px);
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  color:#fff; border:none; border-radius:12px;
+  font-size: clamp(24px, 6vw, 38px);
+  font-weight:600; cursor:pointer; transition:all .3s; margin-top:10px;
+}
+.btn:hover { transform:translateY(-2px); box-shadow:0 10px 20px rgba(26,35,126,.3); }
+.btn:disabled { opacity:.6; cursor:not-allowed; transform:none; }
+.btn.secondary { background:linear-gradient(135deg,#424242 0%,#616161 100%); }
+.logout-btn {
+  background:linear-gradient(135deg,#d32f2f 0%,#f44336 100%);
+  padding:15px 20px; font-size:18px; margin-bottom:15px;
+}
+
+.refresh-btn {
+  background:linear-gradient(135deg,#388e3c 0%,#4caf50 100%);
+  padding:8px 12px; font-size:18px; margin-bottom:0;
+  width:auto; min-width:45px; border-radius:50%;
+}
+
+.message {
+  padding:18px; border-radius:10px; margin-bottom:15px;
+  font-size: clamp(18px, 4.5vw, 26px);
+  text-align:center; font-weight:500;
+}
+.success { background:#e8f5e8; color:#2e7d32; border:2px solid #4caf50; }
+.error { background:#ffebee; color:#c62828; border:2px solid #f44336; }
+
+.user-info {
+  background:linear-gradient(135deg,#e3f2fd 0%,#bbdefb 100%);
+  padding:15px; border-radius:10px; margin-bottom:20px;
+  text-align:center; border:2px solid #1a237e;
+}
+.user-info h3 { color:#1a237e; font-size: clamp(18px, 4.8vw, 28px); margin-bottom:8px; font-weight:600; }
+.user-info p  { color:#283593; font-size: clamp(16px, 4.5vw, 24px); }
+
+.loading { display:none; text-align:center; padding:30px; }
+.spinner {
+  width:50px; height:50px;
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  margin:0 auto 15px; border-radius:50%; animation:spin 1s linear infinite;
+}
+@keyframes spin { 0% { transform:rotate(0deg);} 100% { transform:rotate(360deg);} }
+
+.room-status-container { padding:20px; }
+.room-status-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+.room-status-title { font-size: clamp(20px, 5vw, 28px); font-weight:600; color:#1a237e; }
+.last-update { font-size:14px; color:#666; }
+.room-table-container { overflow-x:auto; border-radius:10px; box-shadow:0 4px 8px rgba(0,0,0,.1); }
+.room-table { width:100%; border-collapse:collapse; background:#fff; font-size: clamp(12px, 3.5vw, 18px); }
+.room-table td {
+  border:1px solid #ddd; padding:8px 4px;
+  text-align:center; min-width: clamp(28px, 6vw, 40px);
+  height: clamp(30px, 7vw, 44px);
+  font-weight:500;
+}
+.room-table td.empty { background:#f9f9f9; }
+
+.modal {
+  display:none; position:fixed; z-index:1000;
+  left:0; top:0; width:100%; height:100%;
+  background:rgba(0,0,0,.7);
+}
+.modal-content {
+  background:#fff; margin:5% auto; padding:0; border-radius:15px;
+  width:90%; max-width:500px; max-height:80vh;
+  overflow-y:auto; box-shadow:0 20px 40px rgba(0,0,0,.3);
+}
+.modal-header {
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  color:#fff; padding:20px; border-radius:15px 15px 0 0; text-align:center;
+}
+.modal-header h2 { font-size: clamp(22px, 5.5vw, 32px); font-weight:600; }
+.modal-body { padding:20px; }
+.confirm-item {
+  margin-bottom:15px; padding:10px; background:#f5f5f5;
+  border-radius:8px; border-left:4px solid #1a237e;
+}
+.confirm-label { font-weight:600; color:#1a237e; font-size: clamp(18px, 4.8vw, 26px); margin-bottom:8px; }
+.confirm-value { color:#333; font-size: clamp(20px, 5vw, 28px); word-wrap:break-word; line-height:1.4; }
+.modal-buttons { display:flex; gap:10px; padding:0 20px 20px; }
+.modal-buttons .btn { margin-top:0; }
+
+/* iOS가 글자 임의 축소하지 않도록 */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+/* === 기본 글자(모바일 중심으로 크게) === */
+body {
+  font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  min-height: 100vh;
+  padding: 10px;
+  /* 390px 폭 기준 대략 25px 이상 나오도록 상향 */
+  font-size: clamp(26px, 6.4vw, 34px);
+}
+
+/* 헤더 */
+.header h1 { font-size: clamp(52px, 12vw, 84px); font-weight:700; margin-bottom:12px; }
+.header p  { font-size: clamp(28px, 7vw, 40px); opacity:.9; }
+
+/* 탭 */
+.nav-tab {
+  flex:1; padding:15px; text-align:center; background:#f5f5f5; border:none; cursor:pointer;
+  font-size: clamp(22px, 6vw, 30px); font-weight:500; transition:all .3s;
+  border-bottom:3px solid transparent;
+}
+
+/* 라벨 & 입력칸 */
+.form-group label { font-weight:600; color:#1a237e; font-size: clamp(26px, 6.3vw, 36px); }
+.form-group input, .form-group select, .form-group textarea {
+  width:100%;
+  padding: clamp(22px, 5.8vw, 30px);
+  border:2px solid #e3f2fd; border-radius:10px;
+  font-size: clamp(28px, 6.8vw, 38px);
+  background:#fafafa; transition:all .3s; font-family:inherit;
+}
+
+/* placeholder도 같이 확대 */
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  font-size: clamp(24px, 6.2vw, 34px);
+  color:#888;
+}
+
+/* 버튼 */
+.btn {
+  width:100%;
+  padding: clamp(24px, 6.5vw, 32px);
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  color:#fff; border:none; border-radius:12px;
+  font-size: clamp(30px, 7vw, 44px);
+  font-weight:600; cursor:pointer; transition:all .3s; margin-top:10px;
+}
+
+/* 메시지/유저정보 */
+.message { font-size: clamp(24px, 6vw, 34px); }
+.user-info h3 { font-size: clamp(24px, 6vw, 32px); }
+.user-info p  { font-size: clamp(22px, 5.5vw, 28px); }
+
+/* 모달 텍스트 */
+.modal-header h2 { font-size: clamp(26px, 6.5vw, 36px); }
+.confirm-label { font-size: clamp(22px, 5.8vw, 32px); }
+.confirm-value { font-size: clamp(24px, 6.2vw, 34px); }
+
+/* 호실현황 표도 큼직하게 */
+.room-status-title { font-size: clamp(24px, 6.5vw, 32px); }
+.room-table { font-size: clamp(16px, 4.6vw, 22px); }
+.room-table td {
+  min-width: clamp(36px, 8vw, 54px);
+  height: clamp(40px, 9vw, 58px);
+  padding: 10px 6px;
+}
+/* === 예쁜 카드 & 타이틀바 & 아이콘 버튼 === */
+.card {
+  background:#ffffff;
+  border-radius:16px;
+  box-shadow:0 10px 28px rgba(0,0,0,.08);
+  border:1px solid rgba(2,32,71,.06);
+}
+
+/* 호실현황 헤더 바 */
+.room-topbar{
+  display:flex;
+  align-items:center;
+  justify-content:center; /* 타이틀 중앙 */
+  gap:12px;
+  padding:16px 18px;
+  background:linear-gradient(135deg,#1a237e 0%,#283593 100%);
+  color:#fff;
+  border-radius:14px 14px 0 0;
+  position:sticky;
+  top:0;
+  z-index:5;
+}
+
+/* 오른쪽 상단 아이콘 버튼 */
+.btn-icon{
+  position:absolute;
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  width:44px; height:44px;
+  display:flex; align-items:center; justify-content:center;
+  border:none; border-radius:50%;
+  background:rgba(255,255,255,.14);
+  cursor:pointer;
+  transition:.2s;
+}
+.btn-icon:hover{ background:rgba(255,255,255,.22); }
+.btn-icon svg{ width:26px;height:26px; }
+
+/* 섹션 패딩 */
+.room-card-body{ padding:16px; }
+
+/* 마지막 업데이트 문구 */
+.last-update{
+  font-size: clamp(14px,3.8vw,18px);
+  color:#5b6b8a;
+  margin:8px 0 12px;
+}
+
+/* 탭도 더 도톰하게 보이도록 */
+.nav-tab{ font-weight:700; letter-spacing:.2px; }
+
+@media (max-width:480px){
+  html { font-size: 20px; }   /* 기본 루트 글자 크기 살짝 업 */
+}
+
+/* =========================================================
+   반응형 오버라이드(모바일/데스크톱 분기)
+   - html.ui-mobile  : 터치 + 작은 화면
+   - html.ui-desktop : 데스크톱/노트북
+   기존 스타일을 보존하면서 "덮어쓰기"만 합니다.
+========================================================= */
+
+/* 토글 가능한 유틸리티(선택 사용) */
+.only-mobile { display: none; }
+.only-desktop { display: none; }
+html.ui-mobile .only-mobile { display: initial; }
+html.ui-desktop .only-desktop { display: initial; }
+
+/* ---------- 전체 베이스 스케일 ---------- */
+html.ui-mobile body {
+  /* 모바일은 크게 */
+  font-size: 18px;  /* rem 기준 */
+}
+html.ui-desktop body {
+  /* 데스크톱은 밀도 높게 */
+  font-size: 14px;
+  background: #f3f6fb; /* 데스크탑에선 배경 톤 다운 */
+}
+html.ui-desktop .container {
+  max-width: 1100px;     /* 데스크톱에 카드 중앙 정렬 느낌 */
+  margin: 24px auto;
+  border-radius: 16px;
+}
+
+/* ---------- 헤더 ---------- */
+html.ui-desktop .header {
+  padding: 16px 24px;
+}
+html.ui-desktop .header h1 {
+  font-size: 40px;   /* clamp보다 작게 보정 */
+  margin-bottom: 6px;
+}
+html.ui-desktop .header p {
+  font-size: 18px;
+  opacity: .85;
+}
+
+/* ---------- 탭 ---------- */
+html.ui-desktop .nav-tabs { display: flex; } /* 데스크탑에서는 항상 보여도 좋음 */
+html.ui-desktop .nav-tab {
+  font-size: 16px;
+  padding: 10px 12px;
+}
+
+/* ---------- 폼 레이아웃 ---------- */
+html.ui-desktop .form-container { padding: 18px 24px; }
+html.ui-desktop .form-group { margin-bottom: 14px; }
+html.ui-desktop .form-group label {
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+html.ui-desktop .form-group input,
+html.ui-desktop .form-group select,
+html.ui-desktop .form-group textarea {
+  font-size: 15px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+/* placeholder 크기 조정 */
+html.ui-desktop .form-group input::placeholder,
+html.ui-desktop .form-group textarea::placeholder {
+  font-size: 14px;
+}
+
+/* ---------- 버튼 ---------- */
+html.ui-desktop .btn {
+  font-size: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-top: 8px;
+  box-shadow: none;
+}
+html.ui-desktop .btn:hover { transform: none; }
+
+/* 특정 버튼 크기 미세 조정 */
+html.ui-desktop .logout-btn { font-size: 14px; padding: 8px 12px; width: auto; }
+html.ui-desktop .refresh-btn { width: 36px; height: 36px; }
+
+/* ---------- 메시지/알림 ---------- */
+html.ui-desktop .message {
+  font-size: 14px;
+  padding: 10px 12px;
+}
+
+/* ---------- 유저 정보 카드 ---------- */
+html.ui-desktop .user-info { padding: 12px; }
+html.ui-desktop .user-info h3 { font-size: 16px; margin-bottom: 6px; }
+html.ui-desktop .user-info p  { font-size: 14px; }
+
+/* ---------- 이미지 프리뷰 ---------- */
+html.ui-desktop .preview-item { padding: 8px; }
+html.ui-desktop .preview-item img { width: 48px; height: 48px; }
+html.ui-desktop .preview-name { font-size: 13px; }
+html.ui-desktop .preview-size { font-size: 12px; }
+html.ui-desktop .preview-remove { width: 26px; height: 26px; font-size: 14px; }
+
+/* ---------- 호실현황 ---------- */
+html.ui-desktop .room-card-body { padding: 14px 18px; }
+html.ui-desktop .room-status-title { font-size: 18px; }
+html.ui-desktop .last-update { font-size: 12px; }
+
+html.ui-desktop .room-table { font-size: 13px; }
+html.ui-desktop .room-table td {
+  min-width: 36px;
+  height: 32px;
+  padding: 6px;
+}
+
+/* 상단 타이틀바 버튼 */
+html.ui-desktop .btn-icon {
+  width: 36px; height: 36px;
+}
+html.ui-desktop .btn-icon svg { width: 20px; height: 20px; }
+
+/* ---------- 모달 ---------- */
+html.ui-desktop .modal-content {
+  max-width: 720px;      /* 데스크탑에선 넓게 */
+}
+html.ui-desktop .modal-header h2 {
+  font-size: 18px;
+}
+html.ui-desktop .confirm-label {
+  font-size: 14px;
+}
+html.ui-desktop .confirm-value {
+  font-size: 15px;
+}
+html.ui-desktop .modal-buttons .btn {
+  font-size: 15px;
+  padding: 10px 14px;
+}
+
+/* ---------- 로딩 ---------- */
+html.ui-desktop .spinner { width: 36px; height: 36px; }
+html.ui-desktop #loading p { font-size: 14px; }
+
+/* ---------- 모바일 특화(손가락 여백 유지) ---------- */
+html.ui-mobile .btn { min-height: 48px; }                      /* 터치 목표 크기 */
+html.ui-mobile .form-group input,
+html.ui-mobile .form-group select,
+html.ui-mobile .form-group textarea { min-height: 44px; }       /* 터치 여유 */
+html.ui-mobile .room-table td { padding: 10px 6px; }            /* 기존 유지 */
+
+/* ===== 공통 유틸 ===== */
+.only-mobile { display: none; }
+.only-desktop { display: none; }
+html.ui-mobile .only-mobile { display: initial; }
+html.ui-desktop .only-desktop { display: initial; }
+
+/* ===== 데스크톱 스케일 & 레이아웃 ===== */
+html.ui-desktop body { font-size: 14px; background:#f3f6fb; }
+html.ui-desktop .container { max-width: 1100px; margin: 24px auto; border-radius: 16px; }
+html.ui-desktop .header { padding: 18px 24px; }
+html.ui-desktop .header h1 { font-size: 40px; margin-bottom: 6px; }
+html.ui-desktop .header p { font-size: 18px; opacity: .85; }
+
+/* 상단 토글(세그먼트 버튼) */
+.topbar { display:flex; justify-content:flex-end; padding: 8px 16px 0; }
+.view-toggle { background:#e9eef8; border-radius: 999px; padding: 4px; display:inline-flex; gap:4px; }
+.view-toggle .seg {
+  border:0; background:transparent; padding: 8px 16px; border-radius: 999px;
+  font-size: 13px; color:#1a237e; cursor:pointer;
+}
+.view-toggle .seg.active { background:#fff; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+/* 탭: 언더라인 스타일로 간결하게 */
+html.ui-desktop .nav-tabs { display:flex; background:#fff; border-bottom:1px solid #e5eaf2; position: sticky; top:0; z-index:3; }
+html.ui-desktop .nav-tab { font-size:15px; padding:12px 16px; border-bottom:3px solid transparent; }
+html.ui-desktop .nav-tab.active { border-bottom-color:#1a237e; background:#fff; }
+
+/* 툴바(유저정보 + 로그아웃) 한 줄 */
+html.ui-desktop .toolbar { display:flex; align-items:center; gap:12px; }
+html.ui-desktop .logout-btn { padding: 8px 12px; font-size:14px; width:auto; order:2; }
+html.ui-desktop .user-info { order:1; flex:1; padding:12px; }
+html.ui-desktop .user-info h3 { font-size:16px; margin-bottom:4px; }
+html.ui-desktop .user-info p  { font-size:14px; }
+
+/* 폼 축소 */
+html.ui-desktop .form-container { padding: 18px 24px; }
+html.ui-desktop .form-group { margin-bottom: 14px; }
+html.ui-desktop .form-group label { font-size: 15px; margin-bottom:6px; }
+html.ui-desktop .form-group input,
+html.ui-desktop .form-group select,
+html.ui-desktop .form-group textarea {
+  font-size: 15px; padding: 10px 12px; border-radius:8px;
+}
+html.ui-desktop .form-group input::placeholder,
+html.ui-desktop .form-group textarea::placeholder { font-size: 14px; }
+
+/* 버튼 */
+html.ui-desktop .btn { font-size:16px; padding:10px 14px; border-radius:10px; margin-top:8px; box-shadow:none; }
+html.ui-desktop .btn:hover { transform:none; }
+
+/* 이미지 프리뷰 */
+html.ui-desktop .preview-item { padding:8px; }
+html.ui-desktop .preview-item img { width:48px; height:48px; }
+html.ui-desktop .preview-name { font-size:13px; }
+html.ui-desktop .preview-size { font-size:12px; }
+html.ui-desktop .preview-remove { width:26px; height:26px; font-size:14px; }
+
+/* 호실현황 테이블 */
+html.ui-desktop .room-card-body { padding: 14px 18px; }
+html.ui-desktop .last-update { font-size:12px; }
+html.ui-desktop .room-table { font-size:13px; }
+html.ui-desktop .room-table td { min-width:36px; height:32px; padding:6px; }
+
+/* 모달 크기 */
+html.ui-desktop .modal-content { max-width: 720px; }
+html.ui-desktop .modal-header h2 { font-size: 18px; }
+html.ui-desktop .confirm-label { font-size:14px; }
+html.ui-desktop .confirm-value { font-size:15px; }
+html.ui-desktop .modal-buttons .btn { font-size:15px; padding:10px 14px; }
+
+/* 모바일은 터치 여백 유지 */
+html.ui-mobile .btn { min-height:48px; }
+html.ui-mobile .form-group input,
+html.ui-mobile .form-group select,
+html.ui-mobile .form-group textarea { min-height:44px; }
+
+/* 호실현황: 길이에 따라 자동 축소 */
+.room-table td { white-space: nowrap; }   /* 줄바꿈 금지 */
+.room-table td.len3 { letter-spacing: -0.2px; }
+.room-table td.len4 { letter-spacing: -0.2px; }
+.room-table td.len5 { letter-spacing: -0.3px; }
+.room-table td.len6 { letter-spacing: -0.3px; }
+
+/* 데스크톱에서 축소 단계 */
+html.ui-desktop .room-table td.len3 { font-size: 12px; }
+html.ui-desktop .room-table td.len4 { font-size: 11px; }
+html.ui-desktop .room-table td.len5 { font-size: 10px; }
+html.ui-desktop .room-table td.len6 { font-size: 9.5px; }
+
+/* 모바일에서 축소 단계 (기본 폰트가 크므로 살짝만 낮춤) */
+html.ui-mobile .room-table td.len3 { font-size: 14px; }
+html.ui-mobile .room-table td.len4 { font-size: 13px; }
+html.ui-mobile .room-table td.len5 { font-size: 12px; }
+html.ui-mobile .room-table td.len6 { font-size: 11px; }
+
+/* 상태 텍스트 여백 */
+.room-table td.is-status { padding-left: 8px; padding-right: 8px; }
+
+/* (선택) 데스크톱에서 열을 살짝 넓히고 싶다면 켜세요
+html.ui-desktop .room-table td { min-width: 40px; }
+*/
+
+/* =========================================
+   ✅ 폼 타이포 '로그인 버튼' 수준으로 상향
+   (모바일 기본) — 표는 예외
+   붙여넣기 위치: <style> 맨 아래
+========================================= */
+
+/* 로그인 버튼과 같은 스케일 변수 */
+:root{
+  --form-font: clamp(30px, 7vw, 44px);
+  --form-placeholder-font: clamp(28px, 6.6vw, 40px);
+}
+
+/* 폼 요소(라벨/입력/텍스트/셀렉트/플레이스홀더) */
+html.ui-mobile .form-group label,
+html.ui-mobile .form-group input,
+html.ui-mobile .form-group select,
+html.ui-mobile .form-group textarea,
+html.ui-mobile .message,
+html.ui-mobile .user-info h3,
+html.ui-mobile .user-info p,
+html.ui-mobile .nav-tab,
+html.ui-mobile .modal-header h2,
+html.ui-mobile .confirm-label,
+html.ui-mobile .confirm-value {
+  font-size: var(--form-font) !important;
+}
+
+html.ui-mobile .form-group input::placeholder,
+html.ui-mobile .form-group textarea::placeholder {
+  font-size: var(--form-placeholder-font) !important;
+}
+
+/* 표는 예외: 기존 크기 유지(과확대 방지) */
+html.ui-mobile .room-table,
+html.ui-mobile .room-table td {
+  font-size: clamp(16px, 4.6vw, 22px) !important;
+}
+
+/* 상태 텍스트 길이별 축소 규칙 유지 */
+html.ui-mobile .room-table td.len3 { font-size: 14px !important; }
+html.ui-mobile .room-table td.len4 { font-size: 13px !important; }
+html.ui-mobile .room-table td.len5 { font-size: 12px !important; }
+html.ui-mobile .room-table td.len6 { font-size: 11px !important; }
+
+
+/* === iOS에서도 모달 전체가 보이도록: 중앙정렬 + safe-area 고려 === */
+/* 기존 JS가 style="display:block"을 쓰므로, 그 상태에서 flex로 강제 */
+.modal[style*="block"]{
+  display:flex !important;
+  align-items:center;
+  justify-content:center;
+  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px) 12px;
+}
+
+/* 모달 프레임: 세로 꽉 채우되 버튼이 항상 보이도록 내부를 칼럼 레이아웃 */
+.modal-content{
+  width: min(720px, calc(100vw - 24px));
+  /* dvh 지원 시 사용, 미지원 브라우저는 vh로 자동 대체 */
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  display:flex;
+  flex-direction: column;
+  margin: 0;               /* 가운데 정렬은 flex로 처리 */
+  border-radius: 18px;
+  overflow: hidden;        /* 스크롤은 본문에만 */
+}
+
+/* 본문만 스크롤 */
+.modal-body{
+  flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 22px;
+}
+
+/* 하단 버튼 바: 항상 보이도록 sticky + safe-area 패딩 */
+.modal-buttons{
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: #fff;
+  border-top: 1px solid #eaeaea;
+}
+
+/* 모바일에선 거의 풀폭 */
+html.ui-mobile .modal-content{
+  width: calc(100vw - 24px);
+  max-width: 600px; /* 필요시 조절 */
+}
+
+/* dvh 미지원(iOS 15 등) 대비 간단한 폴백 */
+@supports not (height: 100dvh){
+  .modal-content{
+    max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}
+
+/* ===== 제출 전 확인 모달 전용(모바일) 폭/레이아웃 보강 ===== */
+html.ui-mobile #confirmModal .modal-content{
+  width: 92vw !important;          /* 화면의 92% */
+  max-width: 92vw !important;      /* 기존 500px 제한 무시 */
+  margin: 0 !important;
+  border-radius: 16px;
+  display:flex; flex-direction:column;
+  overflow:hidden;
+  /* iOS 주소/툴바 높이 대응 */
+  max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+/* 모달 자체를 화면 중앙 정렬 + 안전영역 패딩 */
+html.ui-mobile #confirmModal[style*="block"]{
+  display:flex !important;
+  align-items:center;
+  justify-content:center;
+  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 12px) 12px;
+}
+
+/* 상단 타이틀 고정, 내용 스크롤 */
+html.ui-mobile #confirmModal .modal-header{
+  position: sticky; top: 0; z-index: 1;
+}
+html.ui-mobile #confirmModal .modal-body{
+  flex: 1 1 auto;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px 20px;
+}
+
+/* 하단 버튼 항상 보이도록 고정 */
+html.ui-mobile #confirmModal .modal-buttons{
+  position: sticky; bottom: 0;
+  background:#fff;
+  border-top:1px solid #eaeaea;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+}
+
+/* 100dvh 미지원 브라우저 폴백 */
+@supports not (height: 100dvh){
+  html.ui-mobile #confirmModal .modal-content{ max-height: calc(100vh - 24px); }
+}
+
+/* 데스크톱은 살짝 넓게 */
+html.ui-desktop #confirmModal .modal-content{ max-width: 640px; }
+
+
+</style>
+
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>JHT 스마트 업무일지</h1>
+      <p>오늘의 업무를 기록하세요</p>
+    </div>
+
+<!-- 헤더 바로 아래 -->
+<div class="topbar only-desktop">
+  <div class="view-toggle" role="tablist" aria-label="보기 전환">
+    <button class="seg active" data-mode="desktop" aria-selected="true">PC</button>
+    <button class="seg" data-mode="mobile" aria-selected="false">모바일</button>
+  </div>
+</div>
+
+
+    <div id="navTabs" class="nav-tabs">
+      <button class="nav-tab active" onclick="showTab('diary', this)">업무일지</button>
+      <button class="nav-tab" onclick="showTab('room', this)">호실현황</button>
+      <button class="nav-tab" onclick="showTab('viewDiary', this)">일지보기</button>
+    </div>
+
+    <div id="loginSection" class="login-section">
+      <div class="form-container">
+        <div id="loginMessage"></div>
+        <div class="form-group">
+          <label for="loginName">이름</label>
+          <input type="text" id="loginName" placeholder="이름을 입력하세요" required>
+        </div>
+        <div class="form-group">
+          <label for="loginEmail">이메일</label>
+          <input type="email" id="loginEmail" placeholder="이메일을 입력하세요" required>
+        </div>
+        <button class="btn" onclick="login()">로그인</button>
+      </div>
+    </div>
+
+    <div id="mainSection" class="main-section">
+     <div class="form-container toolbar">
+  <div id="userInfo" class="user-info"></div>
+  <button class="btn logout-btn" onclick="logout()">로그아웃</button>
+</div>
+
+
+<!-- 기존: <div class="form-container"> ... </div> -->
+<form id="diaryForm" class="form-container" onsubmit="return false;">
+  <div id="diaryMessage"></div>
+
+      <div id="diaryTab" class="diary-tab active">
+        <div class="form-container">
+          <div class="form-group">
+            <label for="workDate">날짜</label>
+            <input type="date" id="workDate" required>
+          </div>
+
+          <div class="form-group">
+            <label for="category">업무구분</label>
+            <select id="category" required>
+              <option value="">구분을 선택하세요</option>
+              <option value="분양">분양</option>
+              <option value="임대">임대</option>
+              <option value="전매">전매</option>
+              <option value="입주">입주</option>
+              <option value="건축">건축</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="customerInfo">고객정보</label>
+            <textarea id="customerInfo" placeholder="고객 관련 정보를 입력하세요..." rows="4"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="workContent">업무내용</label>
+            <textarea id="workContent" class="large" placeholder="오늘의 업무 내용을 상세히 입력하세요..." required rows="6"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="etc">기타</label>
+            <textarea id="etc" class="large" placeholder="추가 사항이나 특이사항을 입력하세요..." rows="5"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="imageUpload">이미지 첨부</label>
+            <input type="file" id="imageUpload" accept="image/*" multiple style="display:none">
+            <button type="button" class="btn secondary" onclick="document.getElementById('imageUpload').click()">사진 선택</button>
+            <div id="imagePreview" class="image-preview"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="timestamp">타임스탬프</label>
+            <input type="text" id="timestamp" readonly>
+          </div>
+                <!-- ✅ 버튼을 탭 안쪽으로 이동 -->
+      <div class="form-group" id="submitWrap">
+        <button class="btn" type="button" onclick="showConfirmModal()">
+          업무일지제출
+        </button>
+      </div>
+
+        </div>
+      </div>
+ 
+  <div id="statusBar" class="message" style="display:none;"></div>
+</form>
+
+
+      <div id="roomTab" class="room-tab">
+  <div class="card">
+
+    <!-- 상단 타이틀바 (가운데 정렬 + 아이콘 새로고침) -->
+    <div class="room-topbar">
+      <h2 style="font-size: clamp(22px,6.5vw,34px); font-weight:800; margin:0;">
+        호실현황
+      </h2>
+      <button class="btn-icon" onclick="loadRoomStatus()" title="새로고침" aria-label="새로고침">
+        <!-- refresh icon (SVG) -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <polyline points="1 20 1 14 7 14"></polyline>
+          <path d="M3.51 9A9 9 0 0 1 21 10h2"></path>
+          <path d="M20.49 15A9 9 0 0 1 3 14H1"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="room-card-body">
+      <div class="last-update" id="lastUpdate"></div>
+      <div id="roomMessage"></div>
+
+      <div class="room-table-container">
+        <table class="room-table" id="roomTable"></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="viewDiaryTab" class="diary-tab">
+    <div class="form-container">
+        <div class="form-group">
+            <label for="filterDate">날짜</label>
+            <select id="filterDate"><option value="">전체</option></select>
+        </div>
+        <div class="form-group">
+            <label for="filterAuthor">작성자</label>
+            <select id="filterAuthor"><option value="">전체</option></select>
+        </div>
+        <div class="form-group">
+            <label for="filterCategory">구분</label>
+            <select id="filterCategory"><option value="">전체</option></select>
+        </div>
+        <div class="form-group">
+            <label for="filterCustomer">고객정보</label>
+            <input type="text" id="filterCustomer" placeholder="고객정보 내용으로 검색...">
+        </div>
+        <button class="btn" onclick="searchDiaryEntries()">검색</button>
+        <div id="viewDiaryMessage"></div>
+    </div>
+    <div class="room-table-container" style="margin:12px;">
+        <table class="room-table">
+            <thead>
+                <tr>
+                    <td>날짜</td>
+                    <td>작성자</td>
+                    <td>구분</td>
+                    <td>고객정보</td>
+                    <td>업무내용</td>
+                    <td>기타</td>
+                    <td>이미지</td>
+                    <td>삭제</td>
+                </tr>
+            </thead>
+            <tbody id="diaryEntriesBody"></tbody>
+        </table>
+    </div>
+</div>
+
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>처리 중...</p>
+    </div>
+  </div>
+
+  <!-- 분리된 스크립트 포함 -->
+  <?!= include('app'); ?>
+
+  <!-- 제출 전 확인 모달 -->
+<div id="confirmModal" class="modal" aria-hidden="true">
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="modal-header">
+      <h2 id="confirmTitle">제출 전 확인</h2>
+    </div>
+    <div class="modal-body" id="confirmContent"></div>
+    <div class="modal-buttons">
+      <button class="btn secondary" type="button" onclick="closeConfirmModal()">취소</button>
+      <button id="confirmSubmitBtn" class="btn" type="button" onclick="submitDiary()">제출</button>
+    </div>
+  </div>
+</div>
+
+<!-- 최종 결과 모달 -->
+<div id="resultModal" class="modal" aria-hidden="true">
+  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="resultTitle">
+    <div class="modal-header">
+      <h2 id="resultTitle">등록 결과</h2>
+    </div>
+    <div class="modal-body" id="resultBody"></div>
+    <div class="modal-buttons">
+      <button class="btn" type="button" onclick="closeResultModal()">확인</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

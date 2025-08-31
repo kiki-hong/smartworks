@@ -1,0 +1,665 @@
+<!--
+  app.html
+-->
+
+<script>
+// =========================
+//   공통 상태/유틸
+// =========================
+let currentUser = null;
+let selectedImages = [];
+let diaryFiltersLoaded = false; // 일지보기 필터 로딩 여부 플래그
+
+function fmtComma(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const num = Number(v);
+  return isNaN(num) ? v : num.toLocaleString('en-US');
+}
+
+function gasReady() {
+  try { return !!(window.google && google.script && google.script.run); } 
+  catch(e){ return false; }
+}
+
+function showMessage(elementId, message, type) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  el.innerHTML = `<div class="message ${type || ''}">${message}</div>`;
+  setTimeout(() => { if (el.innerHTML.includes(message)) el.innerHTML = ''; }, 5000);
+}
+
+function setLoadingText(msg){
+  const p = document.querySelector('#loading p');
+  if (p) p.textContent = msg || '처리 중...';
+}
+function showLoading(show) {
+  const loading = document.getElementById('loading');
+  const sections = document.querySelectorAll('.login-section, .main-section');
+  if (!loading) return;
+  if (show) {
+    loading.style.display = 'block';
+    sections.forEach(s => s.style.opacity = '0.5');
+    document.body.style.pointerEvents = 'none';
+    loading.style.pointerEvents = 'auto';
+  } else {
+    loading.style.display = 'none';
+    sections.forEach(s => s.style.opacity = '1');
+    document.body.style.pointerEvents = 'auto';
+  }
+}
+
+let _loadingTimer = null;
+function showLoadingSafe(show, timeoutMs = 15000, msg) {
+  if (show) setLoadingText(msg || '처리 중...');
+  showLoading(show);
+  clearTimeout(_loadingTimer);
+  if (show) {
+    _loadingTimer = setTimeout(() => {
+      showLoading(false);
+      showMessage('diaryMessage', '서버 응답이 지연됩니다. 네트워크 상태 확인 후 다시 시도하세요.', 'error');
+    }, timeoutMs);
+  }
+}
+
+// =========================
+//   초기화
+// =========================
+window.addEventListener('load', () => {
+  const today = new Date().toISOString().split('T')[0];
+  const dateEl = document.getElementById('workDate');
+  if (dateEl) dateEl.value = today;
+  updateTimestamp();
+  setInterval(updateTimestamp, 5000);
+
+  const fileInput = document.getElementById('imageUpload');
+  if (fileInput) fileInput.addEventListener('change', handleImageSelection);
+
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+  if (isStandalone && !gasReady()) {
+    showMessage('loginMessage', '현재 홈화면(앱) 모드에서는 서버 저장이 되지 않습니다. 브라우저(사파리/크롬)에서 접속해 주세요.', 'error');
+  }
+
+  if (typeof TEST_MODE !== 'undefined' && TEST_MODE) autoLogin();
+});
+
+// =========================
+//   자동 로그인 (테스트 모드)
+// =========================
+function autoLogin() {
+  currentUser = { name: '테스트', email: 'test@example.com' };
+  document.getElementById('loginSection').style.display = 'none';
+  document.getElementById('mainSection').style.display = 'block';
+  document.getElementById('navTabs').classList.add('show');
+  document.getElementById('userInfo').innerHTML = `<h3>${currentUser.name}</h3><p>${currentUser.email}</p>`;
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('workDate').value = today;
+  updateTimestamp();
+  showMessage('diaryMessage', '(테스트 모드) 로그인 없이 작성 가능합니다.', 'success');
+}
+
+// =========================
+//   탭 전환
+// =========================
+function showTab(tabName, btnEl){
+  document.querySelectorAll('.nav-tab').forEach(b=>b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+
+  const diaryTab = document.getElementById('diaryTab');
+  const roomTab  = document.getElementById('roomTab');
+  const viewDiaryTab = document.getElementById('viewDiaryTab');
+
+  [diaryTab, roomTab, viewDiaryTab].forEach(el => el && el.classList.remove('active'));
+
+  if (tabName === 'room'){
+    roomTab.classList.add('active');
+    document.querySelector('.header h1').textContent = '호실현황';
+    document.querySelector('.header p').textContent  = '현재 상태를 한눈에 확인하세요';
+    loadRoomStatus();
+  } else if (tabName === 'viewDiary') {
+    viewDiaryTab.classList.add('active');
+    document.querySelector('.header h1').textContent = '일지보기';
+    document.querySelector('.header p').textContent  = '과거 업무일지를 검색하고 확인하세요';
+    loadDiaryFilters();
+  } else {
+    diaryTab.classList.add('active');
+    document.querySelector('.header h1').textContent = 'JHT 스마트 업무일지';
+    document.querySelector('.header p').textContent  = '오늘의 업무를 기록하세요';
+  }
+}
+
+// =========================
+//   일지보기 기능
+// =========================
+function loadDiaryFilters() {
+  if (diaryFiltersLoaded || !gasReady()) return;
+  showLoadingSafe(true, 15000, '필터 목록 로딩 중...');
+  google.script.run
+    .withSuccessHandler(res => {
+      showLoadingSafe(false);
+      if (res.success) {
+        const { dates, authors, categories } = res.data;
+        populateSelect('filterDate', dates);
+        populateSelect('filterAuthor', authors);
+        populateSelect('filterCategory', categories);
+        diaryFiltersLoaded = true;
+      } else {
+        showMessage('viewDiaryMessage', res.message, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      showLoadingSafe(false);
+      console.error(err);
+      showMessage('viewDiaryMessage', '필터 목록 로딩 중 오류 발생', 'error');
+    })
+    .getFilterOptions();
+}
+
+function populateSelect(elementId, options) {
+  const select = document.getElementById(elementId);
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = ''; // Clear existing options
+  options.forEach(opt => {
+    const option = document.createElement('option');
+    option.value = opt;
+    option.textContent = opt;
+    select.appendChild(option);
+  });
+  select.value = currentValue;
+}
+
+function searchDiaryEntries() {
+  if (!gasReady()) {
+    showMessage('viewDiaryMessage', '서버에 연결할 수 없습니다.', 'error');
+    return;
+  }
+  const filters = {
+    date: document.getElementById('filterDate').value,
+    author: document.getElementById('filterAuthor').value,
+    category: document.getElementById('filterCategory').value,
+    customerInfo: document.getElementById('filterCustomer').value.trim()
+  };
+  showLoadingSafe(true, 20000, '일지 검색 중...');
+  google.script.run
+    .withSuccessHandler(res => {
+      showLoadingSafe(false);
+      if (res.success) {
+        renderDiaryTable(res.data);
+      } else {
+        showMessage('viewDiaryMessage', res.message, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      showLoadingSafe(false);
+      console.error(err);
+      showMessage('viewDiaryMessage', '일지 검색 중 오류 발생', 'error');
+    })
+    .getDiaryEntries(filters);
+}
+
+function renderDiaryTable(entries) {
+  const tbody = document.getElementById('diaryEntriesBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!entries || entries.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 8;
+    td.textContent = '검색 결과가 없습니다.';
+    td.style.textAlign = 'center';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  entries.forEach(entry => {
+    const tr = document.createElement('tr');
+    const deleteButton = (currentUser && currentUser.name === entry.author)
+      ? `<button class="btn secondary" style="padding: 5px 10px; font-size: 14px;" onclick="requestDeleteEntry('${entry.id}', this)">삭제</button>`
+      : '';
+
+    tr.innerHTML = `
+      <td>${entry.date}</td>
+      <td>${entry.author}</td>
+      <td>${entry.category}</td>
+      <td>${entry.customerInfo}</td>
+      <td>${entry.workContent}</td>
+      <td>${entry.etc}</td>
+      <td>${entry.image ? `<a href="${entry.image}" target="_blank">보기</a>` : ''}</td>
+      <td>${deleteButton}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function requestDeleteEntry(id, buttonEl) {
+    if (!confirm('정말 이 일지를 삭제하시겠습니까? 되돌릴 수 없습니다.')) {
+        return;
+    }
+
+    showLoadingSafe(true, 15000, '삭제 중...');
+    google.script.run
+        .withSuccessHandler(res => {
+            showLoadingSafe(false);
+            if (res.success) {
+                showMessage('viewDiaryMessage', '일지가 삭제되었습니다.', 'success');
+                buttonEl.closest('tr').remove();
+            } else {
+                showMessage('viewDiaryMessage', res.message, 'error');
+            }
+        })
+        .withFailureHandler(err => {
+            showLoadingSafe(false);
+            console.error(err);
+            showMessage('viewDiaryMessage', '삭제 중 서버 오류가 발생했습니다.', 'error');
+        })
+        .deleteDiaryEntry(id);
+}
+
+
+// =========================
+//   시간/폼 유틸
+// =========================
+function updateTimestamp() {
+  const now = new Date();
+  const ts = now.toLocaleString('ko-KR', {
+    year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit'
+  });
+  const el = document.getElementById('timestamp');
+  if (el) el.value = ts;
+}
+
+function getFormData() {
+  return {
+    date: document.getElementById('workDate').value,
+    author: currentUser ? currentUser.name : '',
+    authorEmail: currentUser ? currentUser.email : '',
+    category: document.getElementById('category').value,
+    customerInfo: document.getElementById('customerInfo').value.trim(),
+    workContent: document.getElementById('workContent').value.trim(),
+    etc: document.getElementById('etc').value.trim(),
+    timestamp: document.getElementById('timestamp').value
+  };
+}
+
+// =========================
+//   로그인/로그아웃
+// =========================
+function login() {
+  const name  = document.getElementById('loginName').value.trim();
+  const email = document.getElementById('loginEmail').value.trim();
+
+  if (typeof TEST_MODE !== 'undefined' && TEST_MODE) { autoLogin(); return; }
+
+  if (!name || !email) {
+    showMessage('loginMessage', '이름과 이메일을 모두 입력해주세요.', 'error');
+    return;
+  }
+  showLoadingSafe(true, 15000, '인증 중...');
+
+  if (!gasReady()) {
+    showLoadingSafe(false);
+    showMessage('loginMessage', '이 환경에서는 로그인/제출이 동작하지 않습니다. 브라우저 탭으로 접속해 주세요.', 'error');
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      showLoadingSafe(false);
+      if (res.success) {
+        currentUser = res.user;
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('mainSection').style.display = 'block';
+        document.getElementById('navTabs').classList.add('show');
+        document.getElementById('userInfo').innerHTML = `<h3>${res.user.name}</h3><p>${res.user.email}</p>`;
+        showMessage('diaryMessage', '로그인되었습니다! 업무일지를 작성해주세요.', 'success');
+        document.getElementById('loginName').value = '';
+        document.getElementById('loginEmail').value = '';
+      } else {
+        showMessage('loginMessage', res.message, 'error');
+      }
+    })
+    .withFailureHandler(err => {
+      showLoadingSafe(false);
+      console.error(err);
+      showMessage('loginMessage', '로그인 중 오류가 발생했습니다. 다시 시도해주세요.', 'error');
+    })
+    .validateUser(name, email);
+}
+
+function logout() {
+  currentUser = null;
+  document.getElementById('loginSection').style.display = 'block';
+  document.getElementById('mainSection').style.display = 'none';
+  document.getElementById('navTabs').classList.remove('show');
+  document.getElementById('category').value = '';
+  document.getElementById('customerInfo').value = '';
+  document.getElementById('workContent').value = '';
+  document.getElementById('etc').value = '';
+  selectedImages = [];
+  updateImagePreview();
+  showMessage('loginMessage', '로그아웃되었습니다.', 'success');
+}
+
+// =========================
+//   이미지 선택/리사이즈/프리뷰
+// =========================
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024, sizes = ['Bytes','KB','MB','GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i];
+}
+
+async function resizeImage(file, maxW=1280, maxH=1280, quality=0.8){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = e => img.src = e.target.result;
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+
+    img.onload = ()=>{
+      let { width, height } = img;
+      if (width > maxW || height > maxH){
+        const scale = Math.min(maxW/width, maxH/height);
+        width *= scale; height *= scale;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve({
+        base64: dataUrl,
+        name: file.name.replace(/\.[^.]+$/, '.jpg'),
+        size: Math.round(dataUrl.length * 0.75),
+        dataUrl
+      });
+    };
+    img.onerror = reject;
+  });
+}
+
+async function handleImageSelection(e){
+  const files = Array.from(e.target.files || []);
+  for (const f of files){
+    if (!f.type.startsWith('image/')){
+      showMessage('diaryMessage', '이미지 파일만 업로드 가능합니다.', 'error');
+      continue;
+    }
+    try{
+      const imageData = await resizeImage(f, 1280, 1280, 0.8);
+      const isDup = selectedImages.some(img => img.name===imageData.name && img.size===imageData.size);
+      if (isDup){
+        showMessage('diaryMessage', `이미 선택된 파일입니다: ${imageData.name}`, 'error');
+        continue;
+      }
+      selectedImages.push(imageData);
+    }catch(err){
+      console.error('이미지 처리 오류:', err);
+      showMessage('diaryMessage', '이미지 처리 중 오류가 발생했습니다.', 'error');
+    }
+  }
+  e.target.value = ''; // 같은 파일 재선택 허용
+  updateImagePreview();
+}
+
+function updateImagePreview(){
+  const box = document.getElementById('imagePreview');
+  if (!box) return;
+  box.innerHTML = '';
+  selectedImages.forEach((img, idx)=>{
+    const div = document.createElement('div');
+    div.className = 'preview-item';
+    div.innerHTML = `
+      <img src="${img.dataUrl}" alt="${img.name}">
+      <div class="preview-info">
+        <div class="preview-name">${img.name}</div>
+        <div class="preview-size">${formatFileSize(img.size)}</div>
+      </div>
+      <button class="preview-remove" type="button" onclick="removeImage(${idx})">×</button>`;
+    box.appendChild(div);
+  });
+}
+function removeImage(i){
+  selectedImages.splice(i,1);
+  updateImagePreview();
+}
+
+// =========================
+//   호실현황
+// =========================
+function loadRoomStatus(){
+  showLoadingSafe(true, 15000, '호실현황 불러오는 중...');
+  if (!gasReady()){
+    showLoadingSafe(false);
+    showMessage('roomMessage', '데이터를 불러오려면 브라우저 탭에서 접속하세요.', 'error');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(res=>{
+      showLoadingSafe(false);
+      if (res?.success){
+        renderRoomTable(res.data || []);
+        const lu = document.getElementById('lastUpdate');
+        if (lu) lu.textContent = '마지막 업데이트: ' + (res.lastUpdate || '');
+      } else {
+        showMessage('roomMessage', res?.message || '불러오기 실패', 'error');
+      }
+    })
+    .withFailureHandler(err=>{
+      showLoadingSafe(false);
+      console.error(err);
+      showMessage('roomMessage', '호실현황을 불러오는 중 오류가 발생했습니다.', 'error');
+    })
+    .getRoomStatus();
+}
+
+function renderRoomTable(grid){
+  const tbl = document.getElementById('roomTable');
+  if (!tbl) return;
+  tbl.innerHTML = '';
+
+  // 코드포인트 기준 글자 수 (한글 1글자=1)
+  const textLen = (s) => [...String(s ?? '').trim()].length;
+
+  grid.forEach(row=>{
+    const tr = document.createElement('tr');
+
+    row.forEach(cell=>{
+      const td = document.createElement('td');
+      const val = (cell?.value ?? '').toString().trim();
+
+      td.textContent = val;
+
+      // 배경/글자색 반영
+      if (cell?.backgroundColor && cell.backgroundColor !== '#ffffff') {
+        td.style.backgroundColor = cell.backgroundColor;
+      }
+      if (cell?.fontColor && cell.fontColor !== '#000000') {
+        td.style.color = cell.fontColor;
+      }
+      if (!val) td.classList.add('empty');
+
+      // 숫자(호실 번호 등)는 제외하고 상태 텍스트만 길이에 따라 축소
+      const isNumberLike = /^-?\d+(\.\d+)?$/.test(val);
+      if (!isNumberLike && val) {
+        td.classList.add('is-status');
+        const len = textLen(val);
+        if (len >= 6) td.classList.add('len6');
+        else if (len === 5) td.classList.add('len5');
+        else if (len === 4) td.classList.add('len4');
+        else if (len === 3) td.classList.add('len3');
+      }
+
+      tr.appendChild(td);
+    });
+
+    tbl.appendChild(tr);
+  });
+}
+
+// =========================
+//   제출 전 확인 모달
+// =========================
+function showConfirmModal(){
+  const data = getFormData();
+  if (!data.date || !data.category || !data.workContent){
+    showMessage('diaryMessage', '날짜, 구분, 업무내용은 필수 입력 항목입니다.', 'error');
+    return;
+  }
+
+  const body = document.getElementById('confirmContent');
+  const imgs = selectedImages.length
+    ? `<div class="confirm-item">
+         <div class="confirm-label">첨부 이미지 (${selectedImages.length}개)</div>
+         <div class="confirm-value">
+           ${selectedImages.map(i=>`• ${i.name} (${formatFileSize(i.size)})`).join('<br>')}
+         </div>
+       </div>` : '';
+
+  body.innerHTML = `
+    <div class="confirm-item"><div class="confirm-label">날짜</div><div class="confirm-value">${data.date}</div></div>
+    <div class="confirm-item"><div class="confirm-label">작성자</div><div class="confirm-value">${currentUser ? currentUser.name : ''}</div></div>
+    <div class="confirm-item"><div class="confirm-label">구분</div><div class="confirm-value">${data.category || '-'}</div></div>
+    <div class="confirm-item"><div class="confirm-label">고객정보</div><div class="confirm-value">${(data.customerInfo||'(입력 없음)').replace(/\n/g,'<br>')}</div></div>
+    <div class="confirm-item"><div class="confirm-label">업무내용</div><div class="confirm-value">${(data.workContent||'-').replace(/\n/g,'<br>')}</div></div>
+    <div class="confirm-item"><div class="confirm-label">기타</div><div class="confirm-value">${(data.etc||'(입력 없음)').replace(/\n/g,'<br>')}</div></div>
+    ${imgs}
+    <div class="confirm-item"><div class="confirm-label">타임스탬프</div><div class="confirm-value">${data.timestamp}</div></div>
+  `;
+
+  document.getElementById('confirmModal').style.display = 'block';
+}
+function closeConfirmModal(){
+  document.getElementById('confirmModal').style.display = 'none';
+}
+
+// =========================
+//   제출 실행 (진행상태 표시)
+// =========================
+function submitDiary(){
+  const data = getFormData();
+  if (!data.author){
+    showMessage('diaryMessage', '로그인 정보가 없습니다. 다시 로그인 후 시도하세요.', 'error');
+    return;
+  }
+  closeConfirmModal();
+
+  showLoadingSafe(true, 20000, '제출 중입니다...');
+
+  if (!gasReady()){
+    showLoadingSafe(false);
+    showMessage('diaryMessage', '이 환경에서는 서버 저장이 지원되지 않습니다. 브라우저(사파리/크롬)에서 접속해 제출하세요.', 'error');
+    return;
+  }
+
+  if (selectedImages.length){
+    const first = selectedImages[0]; // 서버는 1장만 저장
+    const imageData = { base64: first.base64, fileName: first.name };
+    google.script.run
+      .withSuccessHandler(handleSubmitSuccess)
+      .withFailureHandler(handleSubmitError)
+      .submitWorkDiaryWithImage(data, imageData);
+  } else {
+    google.script.run
+      .withSuccessHandler(handleSubmitSuccess)
+      .withFailureHandler(handleSubmitError)
+      .submitWorkDiary(data);
+  }
+}
+
+// =========================
+//   결과 모달(성공/실패)
+// =========================
+function openResultModal(html) {
+  const modal = document.getElementById('resultModal');
+  const body  = document.getElementById('resultBody');
+  if (body) body.innerHTML = html || '';
+  if (modal) modal.style.display = 'block';
+}
+function closeResultModal(){
+  document.getElementById('resultModal').style.display = 'none';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function handleSubmitSuccess(result){
+  showLoadingSafe(false);
+  const ok = result?.success === true;
+
+  // 상단 토스트
+  let toast = ok ? '✅ 업무일지가 저장되었습니다.' : `⚠️ 오류: ${result?.message || '제출 실패'}`;
+  if (ok && result.imageInfo) toast += ' (이미지 업로드 완료)';
+  if (ok && result.id !== undefined) toast += ` (ID: ${result.id})`;
+  showMessage('diaryMessage', toast, ok ? 'success' : 'error');
+
+  // 상세 결과 모달
+  if (ok) {
+    const mailLine = (result.emailTried)
+      ? (result.emailOk ? `📧 확인 메일이 <b>${(currentUser?.email)||''}</b>로 발송되었습니다.` 
+                        : `📧 확인 메일 발송을 시도했지만 실패했습니다.`)
+      : `📧 확인 메일 발송 안 함(설정 OFF 또는 이메일 없음)`;
+
+    const imgLine = result.imageInfo?.url
+      ? `<a href="${result.imageInfo.url}" target="_blank" rel="noopener">이미지 보기</a>`
+      : '없음';
+
+    openResultModal(`
+      <div class="confirm-item"><div class="confirm-label">ID</div><div class="confirm-value">${result.id}</div></div>
+      <div class="confirm-item"><div class="confirm-label">작성자</div><div class="confirm-value">${currentUser?.name || ''} &lt;${currentUser?.email || ''}&gt;</div></div>
+      <div class="confirm-item"><div class="confirm-label">이미지</div><div class="confirm-value">${imgLine}</div></div>
+      <div class="confirm-item"><div class="confirm-label">메일</div><div class="confirm-value">${mailLine}</div></div>
+      <p style="margin-top:8px;color:#666">확인을 눌러 계속 진행하세요.</p>
+    `);
+
+    // 폼 리셋
+    setTimeout(()=>{ resetDiaryForm(); }, 50);
+  } else {
+    openResultModal(`
+      <p style="color:#c62828; font-weight:600; margin:4px 0 10px;">등록에 실패했습니다.</p>
+      <div class="confirm-item"><div class="confirm-label">사유</div><div class="confirm-value">${result?.message || '알 수 없는 오류'}</div></div>
+    `);
+  }
+}
+
+function handleSubmitError(err){
+  showLoadingSafe(false);
+  console.error('GAS Error:', err);
+  showMessage('diaryMessage', `❌ 서버 오류: ${err?.message || '알 수 없는 오류'}`, 'error');
+}
+
+// =========================
+//   모달 외부 클릭 닫기
+// =========================
+window.addEventListener('click', (ev)=>{
+  const c = document.getElementById('confirmModal');
+  const r = document.getElementById('resultModal');
+  if (ev.target === c) closeConfirmModal();
+  if (ev.target === r) closeResultModal();
+});
+
+// =========================
+//   폼 리셋
+// =========================
+function resetDiaryForm(){
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('workDate').value = today;
+
+  const sel = document.getElementById('category');
+  if (sel) sel.selectedIndex = 0;
+
+  document.getElementById('customerInfo').value = '';
+  document.getElementById('workContent').value  = '';
+  document.getElementById('etc').value          = '';
+
+  const fileInput = document.getElementById('imageUpload');
+  if (fileInput) fileInput.value = '';
+  selectedImages = [];
+  updateImagePreview();
+
+  updateTimestamp();
+}
+</script>
